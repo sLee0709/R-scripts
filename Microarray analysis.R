@@ -13,7 +13,7 @@ boxplot(rd)
 dev.off()
 
 rd<-backgroundCorrect(rd, method="normexp", offset=0)
-rd<-normalizeBetweenArrays(y, method="quantile")
+rd<-normalizeBetweenArrays(rd, method="quantile")
 
 png(filename = paste(arguements[2],"after_norm.boxplot.png"), width = 800, height = 800)
 boxplot(y)
