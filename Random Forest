@@ -1,1 +1,114 @@
-library('Random Forest')
+#--------------------------------------random forest--------------------------------------
+library(randomForest)
+library(caret)
+library(doParallel)
+
+#变量筛选（通过交叉验证进行筛选）
+#dowm sampling平衡数据
+df.xgboost.2 <- downSample(x=df.xgboost[,-9770], y=df.xgboost$status, yname = 'status')
+df.xgboost.3 <- predict(preProcess(df.xgboost.2, method = c('zv','center')), newdata = df.xgboost.2)
+
+set.seed(220000)
+sam <- createDataPartition(df.xgboost.3$status, p = .7, list = F)
+train.data <- df.xgboost.3[sam,]
+test.data <- df.xgboost.3[-sam,]
+
+start_tp <- Sys.time()
+print(paste('start!',start_tp))
+df.cv.3 <- replicate(50, rfcv(train.data[,-9770], factor(train.data$status), cv.fold = 10, step = 0.5, scale = 'log'), simplify = T) #这里第9770列是分类变量
+end_tp <- Sys.time()
+tdf <- end_tp - start_tp
+print(paste('Done!',end_tp, ', Time costed: ', tdf))
+print('Starting to save current session...')
+save.image(file = 'rf3.RData')
+print('Successfully saved!')
+
+df.cv.4 <- as.data.frame(df.cv.3)
+er.cv <- as.data.frame(t(df.cv.4[1:2,]))
+er.cv.2 <- data.frame(cv.error=0, nums=0)
+for (i in 1:nrow(er.cv)) {
+  newline <- as.data.frame(unlist(er.cv[i,]))
+  split_cols <- data.frame(do.call(rbind, strsplit(rownames(newline), "\\.")))
+  newline <- cbind(newline, split_cols)
+  newline <- newline[-15,]
+  newline <- newline[, -(2:4)]
+  names(newline) <- c('cv.error','nums')
+  er.cv.2 <- rbind(er.cv.2, newline)
+}
+er.cv.2$cv.error <- as.numeric(er.cv.2$cv.error)
+er.cv.2$nums <- as.numeric(er.cv.2$nums)
+er.cv.2 <- er.cv.2[-1,]
+er.cv.mean <- aggregate(er.cv.2, by=list(er.cv.2$nums), mean)
+
+ggplot(er.cv.mean, aes(x=nums, y=cv.error)) + geom_line() + theme_bw() + 
+  geom_vline(xintercept = 2442, linetype = 'dashed', color ='red') + #这里的2442的值时情况而定
+  theme(panel.grid = element_blank(), panel.border = element_rect(linewidth = 1))
+
+rf.train <- randomForest(status~., data = train.data, importance = TRUE)
+
+#交叉验证完了之后，选取topX个变量进行RF建模（x取决于交叉验证中得到的最低cv.error对应的值，比如这个case中是2442）
+importance_table <- as.data.frame(rf.train$importance)
+importance_table <- importance_table[order(importance_table$MeanDecreaseGini, decreasing = T),]
+importance_selected <- importance_table[1:2442,]
+ipt_gene.df.train <- train.data[,c(rownames(importance_selected), 'status')]
+ipt_gene.df.test <- test.data[,c(rownames(importance_selected), 'status')]
+
+#构建完train和test的数据集后，测试不同ntree对应的OOB值
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+#下面是对ntree参数的调优。大致思路是，先以比较大的step缩小ntree最优值的范围，然后以较小的step在最优值范围内接着寻找更小的最优值范围，反复缩小最优值范围，直到找到best ntree。
+mean_err_rate_list <- c()
+train_auc_list <- c()
+test_auc_list <- c()
+
+#交叉验证ntree
+set.seed(2200001)
+ntree_list = seq(100, 1000, by = 50)
+folds <- createFolds(ipt_gene.df.train$status, k = 10, returnTrain = TRUE)
+results <- list()
+
+for (ntree in ntree_list) {
+  ntree.cv_results <- list()
+  for (fold in 1:10) {
+    ntree.train_data <- ipt_gene.df.train[folds[[fold]], ]  
+    ntree.test_data <- ipt_gene.df.train[-folds[[fold]], ]  
+    
+    curr.model <- randomForest(status ~ ., data = ntree.train_data, ntree = ntree)
+    curr.prediction <- predict(curr.model, newdata = ntree.test_data, type='prob')
+    curr.prediction.obj <- prediction(curr.prediction[,2], ntree.test_data$status)
+    curr.performance.obj <- performance(curr.prediction.obj, 'auc')
+    
+    # 将auc存入ntree.cv_results中
+    ntree.cv_results[[paste0("Fold_", fold)]] <- curr.performance.obj@y.values[[1]]
+  }
+  
+  # 存储每个ntree值的交叉验证结果
+  results[[paste0("ntree_", ntree)]] <- ntree.cv_results
+}
+
+mean_auc.list <- c()
+for (nfold in results) {
+  mean_auc_nfold <- mean(lapply(list(nfold), as.numeric)[[1]])
+  mean_auc.list <- c(mean_auc.list, mean_auc_nfold)
+}
+
+png('ntree.10fcv.meanAUC.png', units = 'in', width = 6, height = 4, res = 300)
+plot(x=ntree_list,y=mean_auc.list, type='l')
+abline(h=max(mean_auc.list), col='red',lty='dashed')
+abline(v=750, col='red',lty='dashed')
+dev.off()
+
+#选取合适的ntree之后计算auc
+rf.model <- randomForest(status ~ ., data = ipt_gene.df.train, ntree = 750)
+test.pred <- predict(rf.model, ipt_gene.df.test, type = 'prob')
+pred.obj <- prediction(test.pred[,2], ipt_gene.df.test$status)
+performance.obj <- performance(pred.obj, "auc")
+performance.obj@y.values[[1]]
+roc_obj <- performance(pred.obj, "tpr", "fpr")
+
+png('rf.ROC.png', units = 'in', height = 4, width = 4, res = 300)
+plot(roc_obj)
+abline(a = 0, b = 1, col = "red", lty = 2)
+text(0.9, 0.05, paste("AUC =", round(performance.obj@y.values[[1]], 2)), pos = 3, col = "blue", cex = 1.2)
+dev.off()
