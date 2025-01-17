@@ -134,20 +134,20 @@ column_info <- data.frame(
   group = c("Dataset", "Drug",
             rep(c("AUC",""), length.out = 8),
             rep(c("ACC",""), length.out = 8)
-            ),
+  ),
   name = c('','',
            'ScIDUC','','DREEP','',
            'beyondcell','','scDr','',
            'ScIDUC','','DREEP','',
            'beyondcell','','scDr',''
-          ),
+  ),
   geom = c("text", "text",
            rep(c("bar","text"), length.out = 16)
-           ), 
+  ), 
   palette = c(NA, NA,                            # 前两列不需要调色板
               rep(c("AUC_palette",NA), length.out = 8),           # AUC 用蓝色调色板
               rep(c("ACC_palette",NA), length.out = 8)
-              ),
+  ),
   options = I(c(
     list(list(width = 10, size = 2.5), list(width = 10, size = 2.5)),  
     rep(c(list(list(width = 2)), list(list(width = 2, overlay = TRUE, hjust = 0.15))), 8)
@@ -248,7 +248,7 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
   } else {
     # 确定总组数
     n_groups <- length(palette_names)
-
+    
     # 设置绘图区域
     plot(NULL, xlim = c(0, n_colors + 1), ylim = c(0, n_groups * 2), type = "n", xlab = "", ylab = "", axes = FALSE)
     col_labels = col_labels
@@ -257,7 +257,7 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
       # 获取当前组的颜色
       legend_colors <- RColorBrewer::brewer.pal(n = 9, name = palette_names[i])
       legend_colors <- rev(legend_colors[seq(1, 9, length.out = n_colors)])  # 按比例选取并反转颜色
-
+      
       # 绘制矩形条
       rect(
         xleft = 1:n_colors - 0.5,
@@ -268,13 +268,13 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
         border = "black",
         lwd = 2
       )
-
+      
       # 添加组名称标签
       text(x = 0.4, y = n_groups - i + 1, labels = col_labels[i], adj = 1, cex = label_size, font = 2)
-
+      
       if (arrow) {
-
-
+        
+        
         arrows(
           x0 = 0.5,
           y0 = n_groups + 0.8,   # 箭头起点 y 坐标
@@ -285,7 +285,7 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
           col = "black",
           lwd = 3.5
         )
-
+        
         text(
           x = 0.3,
           y = n_groups + 0.8,     # 调整 y 坐标到起点文字位置
@@ -294,7 +294,7 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
           cex = 1.5,            # 字体大小
           font = 2              # 字体样式加粗
         )
-
+        
         text(
           x = n_colors + 0.7,
           y = n_groups + 0.8,     # 调整 y 坐标到起点文字位置
@@ -303,7 +303,7 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
           cex = 1.5,            # 字体大小
           font = 2              # 字体样式加粗
         )
-
+        
         text(
           x = n_colors / 2 + 0.5,
           y = n_groups + 1.2,     # 调整 y 坐标到起点文字位置
@@ -320,6 +320,52 @@ customized_legend <- function(n_colors = 5, palette_names = c('Blues', 'Reds'),
 png('legend.png', units = 'in', width = 6, height = 3.5, res = 300)
 customized_legend(n_colors = n_colors, palette_names = palette_names, label_size = 1.5, legend_title = "Ranking")
 dev.off()
+
+
+# 数据框定义矩形范围
+rect_data <- data.frame(
+  xmin = 0.3, xmax = 1.05,
+  ymin = 0.3, ymax = 0.7
+)
+
+# 数据框定义ticks的位置和文本
+ticks_data <- data.frame(
+  x = c(0.3, 1.05), # 两侧的 x 坐标
+  y = c(0.7, 0.7), # 顶点的 y 坐标（直接对应矩形的 ymax）
+  label = c("0", "1") # 文本标签
+)
+
+text_data <- data.frame(
+  x = (rect_data$xmin + rect_data$xmax) / 2, # 矩形中心的 x 坐标
+  y = rect_data$ymin - 0.1,                # 矩形下方的 y 坐标
+  label = "Value"                           # 文本内容
+)
+
+# 创建 ggplot
+val_legend <- ggplot() +
+  # 绘制矩形
+  geom_rect(data = rect_data, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "white", color = "black", linewidth = 1.5) + 
+  # 添加两侧的ticks
+  geom_segment(data = ticks_data, aes(x = x, xend = x, y = y, yend = y + 0.03),
+               inherit.aes = FALSE, lineend = "round", linewidth = 1.5) +
+  # 添加文本标签
+  geom_text(data = ticks_data, aes(x = x, y = y + 0.13, label = label),
+            inherit.aes = FALSE, size = 16) +
+  geom_text(data = text_data, aes(x = x, y = y, label = label),
+            inherit.aes = FALSE, size = 16, fontface = "bold") +
+  coord_cartesian(xlim = c(0.25, 1.1), ylim = c(0, 1)) +
+  # 移除默认坐标轴
+  theme_void()
+
+
+
+
+png('value_legend.png', units = 'in', width = 5, height = 5, res = 300)
+val_legend
+dev.off()
+
+
 ################################################################################################
 
 
@@ -330,4 +376,3 @@ funky_heatmap(data = data_long, column_info = column_info, palettes = palettes,
                 col_annot_offset = 0.5, col_space = 0.5, expand_xmin = 2, expand_ymin = 6))
 
 dev.off()
-
